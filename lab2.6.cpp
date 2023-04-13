@@ -6,6 +6,7 @@
 #include <map>
 #include <vector>
 #include <string>
+#include <chrono>
 
 using namespace std;
 #define err_exit(code, str) { cerr << str << ": " << strerror(code) \
@@ -19,20 +20,11 @@ struct Param
     int* array_ptr;
     int count_elements;
 };
-void* mapf(void* arg){
-    int err;
-    err = pthread_mutex_lock(&mutex);
-    if(err != 0)
-            err_exit(err, "Cannot lock mutex");
-    
+void* mapf(void* arg)
+{
     Param* params = (Param*)arg;
     for(int i = 0; i < params->count_elements; ++i)
-        map_res[params->array_ptr[i] ]+=1;
-        
-    err = pthread_mutex_unlock(&mutex);
-    if(err != 0)
-        err_exit(err, "Cannot unlock mutex");
-    
+        map_res[params->array_ptr[i] ]+=1;      
 }
 void* reducef(void* arg)
 {
@@ -51,13 +43,10 @@ void* reducef(void* arg)
 }
 void mapreduce(Param* array,func mapfunc,func reducefunc, int count_threads)
 {
+	int err;
     Param* params = new Param[count_threads]; //создание структур для передачи
     pthread_t* threads = new pthread_t[count_threads]; //создание потоков
 
-    int err;
-    err = pthread_mutex_init(&mutex, NULL);
-    if(err != 0)
-        err_exit(err, "Cannot initialize mutex");
     for(int i = 0; i < count_threads; i++){
         params[i].count_elements = array->count_elements / count_threads;
         params[i].array_ptr = &array->array_ptr[array->count_elements / count_threads * i];
@@ -85,7 +74,7 @@ void mapreduce(Param* array,func mapfunc,func reducefunc, int count_threads)
         params[i].count_elements = map_res.size()/count_threads;
         params[i].array_ptr = &keys[map_res.size()*i/count_threads];
         if(i == count_threads - 1)
-            params[i].count_elements += array->count_elements % count_threads;
+            params[i].count_elements += map_res.size() % count_threads;
 
         // Создание потока
         err = pthread_create(&threads[i], NULL, reducefunc, (void*)&params[i]);
@@ -103,7 +92,6 @@ void mapreduce(Param* array,func mapfunc,func reducefunc, int count_threads)
     delete[] params;
     delete[] array;
     delete[] threads;
-    pthread_mutex_destroy(&mutex);
 }
 
 int main(int argc, char *argv[])
@@ -128,6 +116,10 @@ int main(int argc, char *argv[])
     Param* p=new Param;
     p->array_ptr=array;
     p->count_elements=array_size;
+    auto begin = chrono::steady_clock::now();
     mapreduce(p,&mapf,&reducef,count_threads);
+    auto elapsed_time = chrono::duration_cast<chrono::microseconds>(chrono::steady_clock::now() - begin);
+	cout << "Time: " << elapsed_time.count() << '\n';
+    pthread_mutex_destroy(&mutex);
     return 0;
 }
